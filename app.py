@@ -17,9 +17,9 @@ DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
 def get_ydl_opts(quality: str, output_path: str) -> dict:
     """Build yt-dlp options based on quality preference."""
     format_map = {
-        "high":   "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
-        "medium": "bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[height<=720][ext=mp4]/best",
-        "low":    "bestvideo[height<=480][ext=mp4]+bestaudio[ext=m4a]/best[height<=480][ext=mp4]/best",
+        "high":   "bestvideo+bestaudio/best",
+        "medium": "bestvideo[height<=720]+bestaudio/best[height<=720]/best",
+        "low":    "bestvideo[height<=480]+bestaudio/best[height<=480]/best",
     }
     return {
         "format": format_map.get(quality, format_map["high"]),
