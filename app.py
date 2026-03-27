@@ -1,17 +1,24 @@
 import os
 import uuid
-import asyncio
-import subprocess
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import StreamingResponse, JSONResponse
+from fastapi.responses import StreamingResponse
 import yt_dlp
 
 app = FastAPI(title="YT-DLP Downloader API", version="1.0.0")
 
 DOWNLOAD_DIR = Path("/tmp/downloads")
 DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
+COOKIES_FILE = "/app/cookies.txt"
+
+
+def cookie_opts() -> dict:
+    """Return cookie option if the file exists."""
+    if os.path.exists(COOKIES_FILE):
+        return {"cookiefile": COOKIES_FILE}
+    return {}
 
 
 def get_ydl_opts(quality: str, output_path: str) -> dict:
@@ -31,6 +38,7 @@ def get_ydl_opts(quality: str, output_path: str) -> dict:
             "key": "FFmpegVideoConvertor",
             "preferedformat": "mp4",
         }],
+        **cookie_opts(),  # <-- cookies injected here
     }
 
 
@@ -46,13 +54,14 @@ def get_metadata(video_url: str = Query(..., description="YouTube video URL")):
         "quiet": True,
         "no_warnings": True,
         "skip_download": True,
+        **cookie_opts(),  # <-- cookies injected here
     }
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(video_url, download=False)
             return {
                 "title": info.get("title"),
-                "description": info.get("description", "")[:500],  # truncate
+                "description": info.get("description", "")[:500],
                 "duration_seconds": info.get("duration"),
                 "thumbnail": info.get("thumbnail"),
                 "uploader": info.get("uploader"),
@@ -67,7 +76,7 @@ def get_metadata(video_url: str = Query(..., description="YouTube video URL")):
                     }
                     for f in info.get("formats", [])
                     if f.get("ext") in ("mp4", "webm")
-                ][-10:],  # last 10 formats (typically best quality)
+                ][-10:],
             }
     except yt_dlp.utils.DownloadError as e:
         raise HTTPException(status_code=400, detail=f"Could not fetch video info: {str(e)}")
@@ -84,10 +93,8 @@ def download_video(
     if quality not in ("high", "medium", "low"):
         raise HTTPException(status_code=400, detail="quality must be 'high', 'medium', or 'low'")
 
-    # Unique filename per request to avoid collisions
     job_id = uuid.uuid4().hex
     output_path = str(DOWNLOAD_DIR / f"{job_id}.%(ext)s")
-
     ydl_opts = get_ydl_opts(quality, output_path)
 
     try:
@@ -95,7 +102,6 @@ def download_video(
             info = ydl.extract_info(video_url, download=True)
             title = info.get("title", "video")
 
-        # Find the downloaded file
         downloaded_files = list(DOWNLOAD_DIR.glob(f"{job_id}.*"))
         if not downloaded_files:
             raise HTTPException(status_code=500, detail="Download completed but file not found")
@@ -106,10 +112,9 @@ def download_video(
         def iterfile():
             try:
                 with open(file_path, "rb") as f:
-                    while chunk := f.read(1024 * 1024):  # 1MB chunks
+                    while chunk := f.read(1024 * 1024):
                         yield chunk
             finally:
-                # Clean up after streaming
                 try:
                     file_path.unlink()
                 except Exception:
@@ -124,11 +129,7 @@ def download_video(
             "X-Video-Title": safe_title,
         }
 
-        return StreamingResponse(
-            iterfile(),
-            media_type="video/mp4",
-            headers=headers,
-        )
+        return StreamingResponse(iterfile(), media_type="video/mp4", headers=headers)
 
     except yt_dlp.utils.DownloadError as e:
         raise HTTPException(status_code=400, detail=f"Download failed: {str(e)}")
@@ -156,6 +157,7 @@ def download_audio(
             "preferredcodec": "mp3",
             "preferredquality": "192",
         }],
+        **cookie_opts(),  # <-- cookies injected here
     }
 
     try:
@@ -189,11 +191,7 @@ def download_audio(
             "Content-Length": str(file_size),
         }
 
-        return StreamingResponse(
-            iterfile(),
-            media_type="audio/mpeg",
-            headers=headers,
-        )
+        return StreamingResponse(iterfile(), media_type="audio/mpeg", headers=headers)
 
     except yt_dlp.utils.DownloadError as e:
         raise HTTPException(status_code=400, detail=f"Download failed: {str(e)}")
