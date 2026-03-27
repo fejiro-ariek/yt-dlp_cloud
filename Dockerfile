@@ -13,6 +13,8 @@ RUN pip install --no-cache-dir --upgrade yt-dlp
 
 COPY app.py .
 
+COPY cookies.txt /app/cookies.txt
+
 ENV PORT=8080
 EXPOSE 8080
 
