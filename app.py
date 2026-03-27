@@ -5,6 +5,7 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import StreamingResponse
 import yt_dlp
+from youtube_transcript_api import YouTubeTranscriptApi
 
 app = FastAPI(title="YT-DLP Downloader API", version="1.0.0")
 
@@ -32,7 +33,6 @@ def get_ydl_opts(quality: str, output_path: str) -> dict:
         "merge_output_format": "mp4",
         "quiet": True,
         "no_warnings": True,
-        # iOS client bypasses 403 Forbidden on datacenter IPs
         "extractor_args": {"youtube": {"player_client": ["ios"]}},
         "postprocessors": [{
             "key": "FFmpegVideoConvertor",
@@ -45,6 +45,26 @@ def get_ydl_opts(quality: str, output_path: str) -> dict:
 @app.get("/")
 def root():
     return {"status": "ok", "message": "YT-DLP API is running"}
+
+
+@app.get("/transcript")
+def get_transcript(
+    video_url: str = Query(..., description="YouTube video URL"),
+    lang: str = Query("en", description="Language code e.g. en, it, fr, es"),
+):
+    """Fetch transcript/captions for a YouTube video. No download needed."""
+    try:
+        video_id = video_url.split("v=")[-1].split("&")[0]
+        transcript = YouTubeTranscriptApi.get_transcript(video_id, languages=[lang])
+        full_text = " ".join([t["text"] for t in transcript])
+        return {
+            "video_id": video_id,
+            "language": lang,
+            "transcript": full_text,
+            "segments": transcript,  # includes start/duration for subtitles
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Transcript error: {str(e)}")
 
 
 @app.get("/metadata")
@@ -67,16 +87,6 @@ def get_metadata(video_url: str = Query(..., description="YouTube video URL")):
                 "uploader": info.get("uploader"),
                 "view_count": info.get("view_count"),
                 "upload_date": info.get("upload_date"),
-                "formats": [
-                    {
-                        "format_id": f.get("format_id"),
-                        "ext": f.get("ext"),
-                        "resolution": f.get("resolution") or f.get("height"),
-                        "filesize": f.get("filesize"),
-                    }
-                    for f in info.get("formats", [])
-                    if f.get("ext") in ("mp4", "webm")
-                ][-10:],
             }
     except yt_dlp.utils.DownloadError as e:
         raise HTTPException(status_code=400, detail=f"Could not fetch video info: {str(e)}")
