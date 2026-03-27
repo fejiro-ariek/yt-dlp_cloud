@@ -52,16 +52,16 @@ def get_transcript(
     video_url: str = Query(..., description="YouTube video URL"),
     lang: str = Query("en", description="Language code e.g. en, it, fr, es"),
 ):
-    """Fetch transcript/captions for a YouTube video. No download needed."""
     try:
         video_id = video_url.split("v=")[-1].split("&")[0]
-        transcript = YouTubeTranscriptApi.get_transcript(video_id, languages=[lang])
+        api = YouTubeTranscriptApi()                          # instantiate first
+        transcript = api.fetch(video_id, languages=[lang])   # use .fetch()
         full_text = " ".join([t["text"] for t in transcript])
         return {
             "video_id": video_id,
             "language": lang,
             "transcript": full_text,
-            "segments": transcript,  # includes start/duration for subtitles
+            "segments": [{"text": t["text"], "start": t["start"], "duration": t["duration"]} for t in transcript],
         }
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Transcript error: {str(e)}")
