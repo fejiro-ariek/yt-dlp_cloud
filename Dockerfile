@@ -7,12 +7,11 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Force yt-dlp to latest at build time
+# Always install latest yt-dlp — cache busted by build arg
+ARG CACHEBUST=1
 RUN pip install --no-cache-dir --upgrade yt-dlp
 
 COPY app.py .
-
-COPY cookies.txt /app/cookies.txt
 
 ENV PORT=8080
 EXPOSE 8080
