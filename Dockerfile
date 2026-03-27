@@ -15,6 +15,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy app source
 COPY app.py .
 
+COPY cookies.txt /app/cookies.txt
+
 # Render sets PORT env var; default to 8080
 ENV PORT=8080
 
