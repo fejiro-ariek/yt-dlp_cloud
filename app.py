@@ -15,14 +15,12 @@ COOKIES_FILE = "/app/cookies.txt"
 
 
 def cookie_opts() -> dict:
-    """Return cookie option if the file exists."""
     if os.path.exists(COOKIES_FILE):
         return {"cookiefile": COOKIES_FILE}
     return {}
 
 
 def get_ydl_opts(quality: str, output_path: str) -> dict:
-    """Build yt-dlp options based on quality preference."""
     format_map = {
         "high":   "bestvideo+bestaudio/best",
         "medium": "bestvideo[height<=720]+bestaudio/best[height<=720]/best",
@@ -34,11 +32,13 @@ def get_ydl_opts(quality: str, output_path: str) -> dict:
         "merge_output_format": "mp4",
         "quiet": True,
         "no_warnings": True,
+        # iOS client bypasses 403 Forbidden on datacenter IPs
+        "extractor_args": {"youtube": {"player_client": ["ios"]}},
         "postprocessors": [{
             "key": "FFmpegVideoConvertor",
             "preferedformat": "mp4",
         }],
-        **cookie_opts(),  # <-- cookies injected here
+        **cookie_opts(),
     }
 
 
@@ -49,12 +49,12 @@ def root():
 
 @app.get("/metadata")
 def get_metadata(video_url: str = Query(..., description="YouTube video URL")):
-    """Return metadata for a YouTube video without downloading it."""
     ydl_opts = {
         "quiet": True,
         "no_warnings": True,
         "skip_download": True,
-        **cookie_opts(),  # <-- cookies injected here
+        "extractor_args": {"youtube": {"player_client": ["ios"]}},
+        **cookie_opts(),
     }
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -89,7 +89,6 @@ def download_video(
     video_url: str = Query(..., description="YouTube video URL"),
     quality: str = Query("high", description="Quality: high | medium | low"),
 ):
-    """Download a YouTube video and stream it back to the client."""
     if quality not in ("high", "medium", "low"):
         raise HTTPException(status_code=400, detail="quality must be 'high', 'medium', or 'low'")
 
@@ -143,7 +142,6 @@ def download_video(
 def download_audio(
     video_url: str = Query(..., description="YouTube video URL"),
 ):
-    """Download audio only as MP3."""
     job_id = uuid.uuid4().hex
     output_path = str(DOWNLOAD_DIR / f"{job_id}.%(ext)s")
 
@@ -152,12 +150,13 @@ def download_audio(
         "outtmpl": output_path,
         "quiet": True,
         "no_warnings": True,
+        "extractor_args": {"youtube": {"player_client": ["ios"]}},
         "postprocessors": [{
             "key": "FFmpegExtractAudio",
             "preferredcodec": "mp3",
             "preferredquality": "192",
         }],
-        **cookie_opts(),  # <-- cookies injected here
+        **cookie_opts(),
     }
 
     try:
