@@ -5,7 +5,6 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import StreamingResponse
 import yt_dlp
-from youtube_transcript_api import YouTubeTranscriptApi
 
 app = FastAPI(title="YT-DLP Downloader API", version="1.0.0")
 
@@ -13,11 +12,18 @@ DOWNLOAD_DIR = Path("/tmp/downloads")
 DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 COOKIES_FILE = "/app/cookies.txt"
+PROXY_URL = os.environ.get("PROXY_URL", "")
 
 
 def cookie_opts() -> dict:
     if os.path.exists(COOKIES_FILE):
         return {"cookiefile": COOKIES_FILE}
+    return {}
+
+
+def proxy_opts() -> dict:
+    if PROXY_URL:
+        return {"proxy": PROXY_URL}
     return {}
 
 
@@ -39,32 +45,13 @@ def get_ydl_opts(quality: str, output_path: str) -> dict:
             "preferedformat": "mp4",
         }],
         **cookie_opts(),
+        **proxy_opts(),
     }
 
 
 @app.get("/")
 def root():
     return {"status": "ok", "message": "YT-DLP API is running"}
-
-
-@app.get("/transcript")
-def get_transcript(
-    video_url: str = Query(..., description="YouTube video URL"),
-    lang: str = Query("en", description="Language code e.g. en, it, fr, es"),
-):
-    try:
-        video_id = video_url.split("v=")[-1].split("&")[0]
-        api = YouTubeTranscriptApi()                          # instantiate first
-        transcript = api.fetch(video_id, languages=[lang])   # use .fetch()
-        full_text = " ".join([t["text"] for t in transcript])
-        return {
-            "video_id": video_id,
-            "language": lang,
-            "transcript": full_text,
-            "segments": [{"text": t["text"], "start": t["start"], "duration": t["duration"]} for t in transcript],
-        }
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Transcript error: {str(e)}")
 
 
 @app.get("/metadata")
@@ -75,6 +62,7 @@ def get_metadata(video_url: str = Query(..., description="YouTube video URL")):
         "skip_download": True,
         "extractor_args": {"youtube": {"player_client": ["ios"]}},
         **cookie_opts(),
+        **proxy_opts(),
     }
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -131,13 +119,11 @@ def download_video(
 
         safe_title = "".join(c for c in title if c.isalnum() or c in " -_").strip()
         filename = f"{safe_title[:80]}.mp4"
-
         headers = {
             "Content-Disposition": f'attachment; filename="{filename}"',
             "Content-Length": str(file_size),
             "X-Video-Title": safe_title,
         }
-
         return StreamingResponse(iterfile(), media_type="video/mp4", headers=headers)
 
     except yt_dlp.utils.DownloadError as e:
@@ -167,6 +153,7 @@ def download_audio(
             "preferredquality": "192",
         }],
         **cookie_opts(),
+        **proxy_opts(),
     }
 
     try:
@@ -194,12 +181,10 @@ def download_audio(
 
         safe_title = "".join(c for c in title if c.isalnum() or c in " -_").strip()
         filename = f"{safe_title[:80]}.mp3"
-
         headers = {
             "Content-Disposition": f'attachment; filename="{filename}"',
             "Content-Length": str(file_size),
         }
-
         return StreamingResponse(iterfile(), media_type="audio/mpeg", headers=headers)
 
     except yt_dlp.utils.DownloadError as e:
