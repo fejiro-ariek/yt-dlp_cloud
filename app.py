@@ -39,7 +39,8 @@ def get_ydl_opts(quality: str, output_path: str) -> dict:
         "merge_output_format": "mp4",
         "quiet": True,
         "no_warnings": True,
-        "extractor_args": {"youtube": {"player_client": ["ios"]}},
+        # Try multiple clients in order
+        "extractor_args": {"youtube": {"player_client": ["ios", "android", "web"]}},
         "postprocessors": [{
             "key": "FFmpegVideoConvertor",
             "preferedformat": "mp4",
@@ -60,7 +61,7 @@ def get_metadata(video_url: str = Query(..., description="YouTube video URL")):
         "quiet": True,
         "no_warnings": True,
         "skip_download": True,
-        "extractor_args": {"youtube": {"player_client": ["ios"]}},
+        "extractor_args": {"youtube": {"player_client": ["ios", "android", "web"]}},
         **cookie_opts(),
         **proxy_opts(),
     }
@@ -142,11 +143,13 @@ def download_audio(
     output_path = str(DOWNLOAD_DIR / f"{job_id}.%(ext)s")
 
     ydl_opts = {
-        "format": "bestaudio/best",
+        # Most permissive format selector — just get any audio
+        "format": "bestaudio/best/worstaudio",
         "outtmpl": output_path,
         "quiet": True,
         "no_warnings": True,
-        "extractor_args": {"youtube": {"player_client": ["ios"]}},
+        # Try all clients
+        "extractor_args": {"youtube": {"player_client": ["ios", "android", "web"]}},
         "postprocessors": [{
             "key": "FFmpegExtractAudio",
             "preferredcodec": "mp3",
