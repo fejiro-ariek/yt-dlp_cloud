@@ -219,13 +219,18 @@ async def merge_audio_video(
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Failed to save audio: {str(e)}")
 
-    # Download video from YouTube (video stream only, no audio)
+    # Download video from YouTube
     ydl_opts = {
         "format": "bestvideo+bestaudio/best",
         "outtmpl": str(video_path),
         "quiet": True,
         "no_warnings": True,
         "extractor_args": {"youtube": {"player_client": ["ios", "android", "web"]}},
+        "retries": 10,
+        "fragment_retries": 10,
+        "retry_sleep_functions": {"http": lambda n: 2 ** n},
+        "buffersize": 1024 * 16,
+        "http_chunk_size": 1024 * 1024,
         **cookie_opts(),
         **proxy_opts(),
     }
