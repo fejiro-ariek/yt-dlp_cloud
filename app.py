@@ -221,7 +221,7 @@ async def merge_audio_video(
 
     # Download video from YouTube (video stream only, no audio)
     ydl_opts = {
-        "format": "bestvideo[ext=mp4]/bestvideo",
+        "format": "bestvideo+bestaudio/best",
         "outtmpl": str(video_path),
         "quiet": True,
         "no_warnings": True,
