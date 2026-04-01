@@ -1,8 +1,9 @@
 import os
 import uuid
+import subprocess
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, UploadFile, File
 from fastapi.responses import StreamingResponse
 import yt_dlp
 
@@ -39,7 +40,6 @@ def get_ydl_opts(quality: str, output_path: str) -> dict:
         "merge_output_format": "mp4",
         "quiet": True,
         "no_warnings": True,
-        # Try multiple clients in order
         "extractor_args": {"youtube": {"player_client": ["ios", "android", "web"]}},
         "postprocessors": [{
             "key": "FFmpegVideoConvertor",
@@ -143,12 +143,10 @@ def download_audio(
     output_path = str(DOWNLOAD_DIR / f"{job_id}.%(ext)s")
 
     ydl_opts = {
-        # Most permissive format selector — just get any audio
         "format": "bestaudio/best/worstaudio",
         "outtmpl": output_path,
         "quiet": True,
         "no_warnings": True,
-        # Try all clients
         "extractor_args": {"youtube": {"player_client": ["ios", "android", "web"]}},
         "postprocessors": [{
             "key": "FFmpegExtractAudio",
@@ -192,6 +190,96 @@ def download_audio(
 
     except yt_dlp.utils.DownloadError as e:
         raise HTTPException(status_code=400, detail=f"Download failed: {str(e)}")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Unexpected error: {str(e)}")
+
+
+@app.post("/merge")
+async def merge_audio_video(
+    video_url: str = Query(..., description="YouTube video URL"),
+    audio: UploadFile = File(..., description="Italian dubbed audio file (mp3/wav)"),
+):
+    """
+    Download a YouTube video, strip its original audio,
+    and replace it with the uploaded Italian dubbed audio.
+    Returns the final dubbed video as mp4.
+    """
+    job_id = uuid.uuid4().hex
+    video_path = DOWNLOAD_DIR / f"{job_id}_video.%(ext)s"
+    audio_path = DOWNLOAD_DIR / f"{job_id}_audio{Path(audio.filename).suffix or '.mp3'}"
+    output_path = DOWNLOAD_DIR / f"{job_id}_dubbed.mp4"
+
+    # Save uploaded audio to disk
+    try:
+        audio_bytes = await audio.read()
+        with open(audio_path, "wb") as f:
+            f.write(audio_bytes)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to save audio: {str(e)}")
+
+    # Download video from YouTube (video stream only, no audio)
+    ydl_opts = {
+        "format": "bestvideo[ext=mp4]/bestvideo",
+        "outtmpl": str(video_path),
+        "quiet": True,
+        "no_warnings": True,
+        "extractor_args": {"youtube": {"player_client": ["ios", "android", "web"]}},
+        **cookie_opts(),
+        **proxy_opts(),
+    }
+
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            ydl.extract_info(video_url, download=True)
+
+        downloaded_videos = list(DOWNLOAD_DIR.glob(f"{job_id}_video.*"))
+        if not downloaded_videos:
+            raise HTTPException(status_code=500, detail="Video download failed")
+
+        actual_video_path = downloaded_videos[0]
+
+        # Use ffmpeg to merge video + new audio
+        # -an removes original audio, -shortest cuts to shortest stream
+        result = subprocess.run([
+            "ffmpeg", "-y",
+            "-i", str(actual_video_path),   # input video
+            "-i", str(audio_path),           # input dubbed audio
+            "-c:v", "copy",                  # copy video stream (no re-encode, fast)
+            "-c:a", "aac",                   # encode audio as aac
+            "-map", "0:v:0",                 # take video from first input
+            "-map", "1:a:0",                 # take audio from second input
+            "-shortest",                     # end when shortest stream ends
+            str(output_path)
+        ], capture_output=True, text=True)
+
+        if result.returncode != 0:
+            raise HTTPException(status_code=500, detail=f"FFmpeg error: {result.stderr}")
+
+        file_size = output_path.stat().st_size
+
+        def iterfile():
+            try:
+                with open(output_path, "rb") as f:
+                    while chunk := f.read(1024 * 1024):
+                        yield chunk
+            finally:
+                # Clean up all temp files
+                for p in [actual_video_path, audio_path, output_path]:
+                    try:
+                        p.unlink()
+                    except Exception:
+                        pass
+
+        headers = {
+            "Content-Disposition": 'attachment; filename="dubbed_italian.mp4"',
+            "Content-Length": str(file_size),
+        }
+        return StreamingResponse(iterfile(), media_type="video/mp4", headers=headers)
+
+    except yt_dlp.utils.DownloadError as e:
+        raise HTTPException(status_code=400, detail=f"Video download failed: {str(e)}")
     except HTTPException:
         raise
     except Exception as e:
