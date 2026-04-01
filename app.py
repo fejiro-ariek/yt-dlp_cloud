@@ -1,7 +1,5 @@
 import os
 import uuid
-import base64
-import io
 import subprocess
 import threading
 from pathlib import Path
@@ -9,7 +7,6 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException, Query, UploadFile, File
 from fastapi.responses import StreamingResponse
 import yt_dlp
-from gtts import gTTS
 
 app = FastAPI(title="YT-DLP Downloader API", version="1.0.0")
 
@@ -262,22 +259,6 @@ def download_audio(video_url: str = Query(...)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/tts")
-def text_to_speech(
-    text: str = Query(...),
-    lang: str = Query("it"),
-):
-    try:
-        tts = gTTS(text=text, lang=lang)
-        mp3_fp = io.BytesIO()
-        tts.write_to_fp(mp3_fp)
-        mp3_fp.seek(0)
-        audio_base64 = base64.b64encode(mp3_fp.read()).decode("utf-8")
-        return {"audio_base64": audio_base64, "format": "mp3", "lang": lang}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"TTS error: {str(e)}")
-
-
 # ── Async Merge Endpoints ──────────────────────────────────────────────────────
 
 @app.post("/merge/start")
@@ -285,10 +266,6 @@ async def merge_start(
     video_url: str = Query(..., description="YouTube video URL"),
     audio: UploadFile = File(..., description="Dubbed audio file"),
 ):
-    """
-    Step 1 — kick off the merge job in the background.
-    Returns a job_id immediately. Poll /merge/status?job_id=... until done.
-    """
     job_id = uuid.uuid4().hex
     audio_bytes = await audio.read()
     audio_ext = Path(audio.filename).suffix or ".mp3"
@@ -307,9 +284,6 @@ async def merge_start(
 
 @app.get("/merge/status")
 def merge_status(job_id: str = Query(...)):
-    """
-    Step 2 — poll until status is 'done' or 'error'.
-    """
     if job_id not in jobs:
         raise HTTPException(status_code=404, detail="Job not found")
 
@@ -323,9 +297,6 @@ def merge_status(job_id: str = Query(...)):
 
 @app.get("/merge/result")
 def merge_result(job_id: str = Query(...)):
-    """
-    Step 3 — download the final dubbed video once status is 'done'.
-    """
     if job_id not in jobs:
         raise HTTPException(status_code=404, detail="Job not found")
 
