@@ -41,6 +41,10 @@ def get_ydl_opts(quality: str, output_path: str) -> dict:
         "quiet": True,
         "no_warnings": True,
         "extractor_args": {"youtube": {"player_client": ["ios", "android", "web"]}},
+        "retries": 10,
+        "fragment_retries": 10,
+        "file_access_retries": 5,
+        "http_chunk_size": 1024 * 1024,
         "postprocessors": [{
             "key": "FFmpegVideoConvertor",
             "preferedformat": "mp4",
@@ -148,6 +152,10 @@ def download_audio(
         "quiet": True,
         "no_warnings": True,
         "extractor_args": {"youtube": {"player_client": ["ios", "android", "web"]}},
+        "retries": 10,
+        "fragment_retries": 10,
+        "file_access_retries": 5,
+        "http_chunk_size": 1024 * 1024,
         "postprocessors": [{
             "key": "FFmpegExtractAudio",
             "preferredcodec": "mp3",
