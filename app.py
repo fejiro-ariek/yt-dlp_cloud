@@ -317,3 +317,107 @@ async def merge_audio_video(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Unexpected error: {str(e)}")
+
+
+@app.post("/merge-files")
+async def merge_files(
+    italian_text: str = Form(..., description="Italian translated text for subtitles"),
+    video: UploadFile = File(..., description="Video file"),
+    audio: UploadFile = File(..., description="Italian dubbed audio file"),
+):
+    """
+    Accept video + audio as uploaded files (no YouTube download).
+    1. Draw black rectangle over French subtitle area
+    2. Burn Italian subtitles on top
+    3. Replace audio with Italian dubbed audio
+    Returns final dubbed + subtitled video.
+    """
+    job_id = uuid.uuid4().hex
+    video_path = DOWNLOAD_DIR / f"{job_id}_video.mp4"
+    audio_path = DOWNLOAD_DIR / f"{job_id}_audio.mp3"
+    output_path = DOWNLOAD_DIR / f"{job_id}_final.mp4"
+
+    # Save uploaded files
+    try:
+        with open(video_path, "wb") as f:
+            f.write(await video.read())
+        with open(audio_path, "wb") as f:
+            f.write(await audio.read())
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to save files: {str(e)}")
+
+    try:
+        # Get video dimensions
+        probe = subprocess.run([
+            "ffprobe", "-v", "error",
+            "-select_streams", "v:0",
+            "-show_entries", "stream=width,height",
+            "-of", "csv=p=0",
+            str(video_path)
+        ], capture_output=True, text=True)
+
+        dims = probe.stdout.strip().split(",")
+        width = int(dims[0]) if len(dims) >= 2 else 1080
+        height = int(dims[1]) if len(dims) >= 2 else 1920
+
+        # Get audio duration for subtitle timing
+        probe_audio = subprocess.run([
+            "ffprobe", "-v", "error",
+            "-show_entries", "format=duration",
+            "-of", "csv=p=0",
+            str(audio_path)
+        ], capture_output=True, text=True)
+        duration = float(probe_audio.stdout.strip() or 60)
+
+        # Generate SRT
+        srt_path = make_srt(italian_text, duration, job_id)
+
+        # Rectangle covers French subtitle area
+        rect_y = int(height * 0.72)
+        rect_h = int(height * 0.10)
+        sub_y = rect_y + int(rect_h * 0.5)
+
+        vf_filter = (
+            f"drawbox=x=0:y={rect_y}:w={width}:h={rect_h}:color=black@1.0:t=fill,"
+            f"subtitles={srt_path}:force_style='"
+            f"FontSize=14,PrimaryColour=&HFFFFFF,Bold=1,"
+            f"MarginV={height - sub_y - 10},Alignment=2'"
+        )
+
+        result = subprocess.run([
+            "ffmpeg", "-y",
+            "-i", str(video_path),
+            "-i", str(audio_path),
+            "-vf", vf_filter,
+            "-c:v", "libx264",
+            "-c:a", "aac",
+            "-map", "0:v:0",
+            "-map", "1:a:0",
+            "-shortest",
+            str(output_path)
+        ], capture_output=True, text=True)
+
+        if result.returncode != 0:
+            raise HTTPException(status_code=500, detail=f"FFmpeg error: {result.stderr[-500:]}")
+
+        file_size = output_path.stat().st_size
+
+        def iterfile():
+            try:
+                with open(output_path, "rb") as f:
+                    while chunk := f.read(1024 * 1024):
+                        yield chunk
+            finally:
+                for p in [video_path, audio_path, output_path, Path(srt_path)]:
+                    try: p.unlink()
+                    except: pass
+
+        return StreamingResponse(iterfile(), media_type="video/mp4", headers={
+            "Content-Disposition": 'attachment; filename="dubbed_italian.mp4"',
+            "Content-Length": str(file_size),
+        })
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Unexpected error: {str(e)}")
