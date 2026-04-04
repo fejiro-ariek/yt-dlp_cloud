@@ -390,12 +390,16 @@ async def merge_files(
             "-i", str(audio_path),
             "-vf", vf_filter,
             "-c:v", "libx264",
+            "-preset", "ultrafast",  # fastest encoding, lowest memory
+            "-crf", "28",            # slightly lower quality but much faster
             "-c:a", "aac",
+            "-b:a", "128k",
             "-map", "0:v:0",
             "-map", "1:a:0",
             "-shortest",
+            "-threads", "1",         # limit threads to reduce memory
             str(output_path)
-        ], capture_output=True, text=True)
+        ], capture_output=True, text=True, timeout=120)
 
         if result.returncode != 0:
             raise HTTPException(status_code=500, detail=f"FFmpeg error: {result.stderr[-500:]}")
