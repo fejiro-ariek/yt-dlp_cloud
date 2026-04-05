@@ -48,16 +48,12 @@ def get_ydl_opts(quality: str, output_path: str) -> dict:
     }
 
 
-def make_srt(text: str, duration_seconds: float, job_id: str) -> str:
-    """Split Italian text into subtitle chunks and write an SRT file."""
-    words = text.split()
-    words_per_chunk = 6
-    chunks = [" ".join(words[i:i+words_per_chunk]) for i in range(0, len(words), words_per_chunk)]
-
-    if not chunks:
-        chunks = [text]
-
-    time_per_chunk = duration_seconds / len(chunks)
+def make_srt(text: str, duration_seconds: float, job_id: str, segments: list = None) -> str:
+    """
+    Write an SRT file from either:
+    - segments: list of {"text": str, "start": float, "duration": float} from Groq
+    - text + duration: evenly split fallback
+    """
     srt_path = str(DOWNLOAD_DIR / f"{job_id}.srt")
 
     def fmt_time(seconds):
@@ -68,13 +64,44 @@ def make_srt(text: str, duration_seconds: float, job_id: str) -> str:
         return f"{h:02}:{m:02}:{s:02},{ms:03}"
 
     lines = []
-    for i, chunk in enumerate(chunks):
-        start = i * time_per_chunk
-        end = start + time_per_chunk
-        lines.append(str(i + 1))
-        lines.append(f"{fmt_time(start)} --> {fmt_time(end)}")
-        lines.append(chunk)
-        lines.append("")
+
+    if segments:
+        # Use Groq timestamps — group into chunks of ~5 words
+        words_per_chunk = 5
+        all_words = []
+        for seg in segments:
+            seg_words = seg["text"].strip().split()
+            word_dur = seg["duration"] / max(len(seg_words), 1)
+            for wi, w in enumerate(seg_words):
+                all_words.append({
+                    "word": w,
+                    "start": seg["start"] + wi * word_dur,
+                    "end": seg["start"] + (wi + 1) * word_dur,
+                })
+
+        chunks = []
+        for i in range(0, len(all_words), words_per_chunk):
+            chunk_words = all_words[i:i+words_per_chunk]
+            chunks.append({
+                "text": " ".join(w["word"] for w in chunk_words),
+                "start": chunk_words[0]["start"],
+                "end": chunk_words[-1]["end"],
+            })
+
+        for i, chunk in enumerate(chunks):
+            lines += [str(i+1), f"{fmt_time(chunk['start'])} --> {fmt_time(chunk['end'])}", chunk["text"], ""]
+    else:
+        # Fallback: even split
+        words = text.split()
+        words_per_chunk = 5
+        chunks = [" ".join(words[i:i+words_per_chunk]) for i in range(0, len(words), words_per_chunk)]
+        if not chunks:
+            chunks = [text]
+        time_per_chunk = duration_seconds / len(chunks)
+        for i, chunk in enumerate(chunks):
+            start = i * time_per_chunk
+            end = start + time_per_chunk
+            lines += [str(i+1), f"{fmt_time(start)} --> {fmt_time(end)}", chunk, ""]
 
     with open(srt_path, "w", encoding="utf-8") as f:
         f.write("\n".join(lines))
@@ -246,8 +273,15 @@ async def merge_audio_video(
 
         actual_video_path = downloaded_videos[0]
 
-        # Generate SRT file from Italian text
-        srt_path = make_srt(italian_text, duration, job_id)
+        # Parse Groq segments if provided for accurate subtitle timing
+        segments = None
+        if segments_json:
+            import json
+            try:
+                segments = json.loads(segments_json)
+            except Exception:
+                segments = None
+        srt_path = make_srt(italian_text, duration, job_id, segments=segments)
 
         # Get video dimensions to position rectangle correctly
         probe = subprocess.run([
@@ -324,6 +358,7 @@ async def merge_files(
     italian_text: str = Form(..., description="Italian translated text for subtitles"),
     video: UploadFile = File(..., description="Video file"),
     audio: UploadFile = File(..., description="Italian dubbed audio file"),
+    segments_json: str = Form(None, description="Optional Groq segments JSON for accurate timing"),
 ):
     """
     Accept video + audio as uploaded files (no YouTube download).
@@ -377,12 +412,12 @@ async def merge_files(
         rect_h = int(height * 0.10)
         sub_y = rect_y + int(rect_h * 0.5)
 
-        # No black rectangle — just Italian subtitles at the bottom with padding
-        margin_bottom = int(height * 0.06)  # 6% padding from bottom
+        # Italian subtitles at the bottom with padding, thin outline
+        margin_bottom = int(height * 0.09)  # 9% padding from bottom
         vf_filter = (
             f"subtitles={srt_path}:force_style='"
-            f"FontSize=11,PrimaryColour=&HFFFFFF,Bold=1,OutlineColour=&H000000,"
-            f"Outline=2,Shadow=1,MarginV={margin_bottom},Alignment=2'"
+            f"FontSize=10,PrimaryColour=&HFFFFFF,Bold=1,OutlineColour=&H000000,"
+            f"Outline=1,Shadow=0,MarginV={margin_bottom},Alignment=2'"
         )
 
         result = subprocess.run([
