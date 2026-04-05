@@ -311,9 +311,9 @@ async def merge_audio_video(
         # 3. map audio from dubbed file
         margin_bottom = int(height * 0.06)
         vf_filter = (
-            f"subtitles={srt_path}:force_style='"
-            f"FontSize=11,PrimaryColour=&HFFFFFF,Bold=1,OutlineColour=&H000000,"
-            f"Outline=2,Shadow=1,MarginV={margin_bottom},Alignment=2'"
+            f"FontSize=12,PrimaryColour=&HFFFFFF,Bold=1,OutlineColour=&H000000,"
+            f"Outline=2,Shadow=1,BorderStyle=3,BackColour=&H80000000,"
+            f"MarginV={margin_bottom},Alignment=2'"
         )
 
         result = subprocess.run([
