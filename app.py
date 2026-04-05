@@ -271,11 +271,11 @@ async def merge_audio_video(
         # 1. drawbox  — black rectangle over French subtitle
         # 2. subtitles — Italian SRT burned on top
         # 3. map audio from dubbed file
+        margin_bottom = int(height * 0.06)
         vf_filter = (
-            f"drawbox=x=0:y={rect_y}:w={width}:h={rect_h}:color=black@1.0:t=fill,"
             f"subtitles={srt_path}:force_style='"
-            f"FontSize=14,PrimaryColour=&HFFFFFF,Bold=1,"
-            f"MarginV={height - sub_y - 10},Alignment=2'"
+            f"FontSize=11,PrimaryColour=&HFFFFFF,Bold=1,OutlineColour=&H000000,"
+            f"Outline=2,Shadow=1,MarginV={margin_bottom},Alignment=2'"
         )
 
         result = subprocess.run([
@@ -377,11 +377,12 @@ async def merge_files(
         rect_h = int(height * 0.10)
         sub_y = rect_y + int(rect_h * 0.5)
 
+        # No black rectangle — just Italian subtitles at the bottom with padding
+        margin_bottom = int(height * 0.06)  # 6% padding from bottom
         vf_filter = (
-            f"drawbox=x=0:y={rect_y}:w={width}:h={rect_h}:color=black@1.0:t=fill,"
             f"subtitles={srt_path}:force_style='"
-            f"FontSize=14,PrimaryColour=&HFFFFFF,Bold=1,"
-            f"MarginV={height - sub_y - 10},Alignment=2'"
+            f"FontSize=11,PrimaryColour=&HFFFFFF,Bold=1,OutlineColour=&H000000,"
+            f"Outline=2,Shadow=1,MarginV={margin_bottom},Alignment=2'"
         )
 
         result = subprocess.run([
@@ -390,14 +391,14 @@ async def merge_files(
             "-i", str(audio_path),
             "-vf", vf_filter,
             "-c:v", "libx264",
-            "-preset", "ultrafast",  # fastest encoding, lowest memory
-            "-crf", "28",            # slightly lower quality but much faster
+            "-preset", "ultrafast",
+            "-crf", "28",
             "-c:a", "aac",
             "-b:a", "128k",
             "-map", "0:v:0",
             "-map", "1:a:0",
             "-shortest",
-            "-threads", "1",         # limit threads to reduce memory
+            "-threads", "1",
             str(output_path)
         ], capture_output=True, text=True, timeout=120)
 
