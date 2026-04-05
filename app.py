@@ -67,16 +67,20 @@ def make_srt(text: str, duration_seconds: float, job_id: str, segments: list = N
 
     if segments:
         # Use Groq timestamps — group into chunks of ~5 words
+        # Groq returns "end" not "duration"
         words_per_chunk = 5
         all_words = []
         for seg in segments:
             seg_words = seg["text"].strip().split()
-            word_dur = seg["duration"] / max(len(seg_words), 1)
+            seg_start = seg.get("start", 0)
+            seg_end = seg.get("end", seg_start + seg.get("duration", 2))
+            seg_dur = seg_end - seg_start
+            word_dur = seg_dur / max(len(seg_words), 1)
             for wi, w in enumerate(seg_words):
                 all_words.append({
                     "word": w,
-                    "start": seg["start"] + wi * word_dur,
-                    "end": seg["start"] + (wi + 1) * word_dur,
+                    "start": seg_start + wi * word_dur,
+                    "end": seg_start + (wi + 1) * word_dur,
                 })
 
         chunks = []
