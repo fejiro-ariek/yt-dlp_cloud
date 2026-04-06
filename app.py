@@ -311,9 +311,9 @@ async def merge_audio_video(
         # 3. map audio from dubbed file
         margin_bottom = int(height * 0.06)
         vf_filter = (
-            f"FontSize=12,PrimaryColour=&HFFFFFF,Bold=1,OutlineColour=&H000000,"
-            f"Outline=2,Shadow=1,BorderStyle=3,BackColour=&H80000000,"
-            f"MarginV={margin_bottom},Alignment=2'"
+            f"subtitles={srt_path}:force_style='"
+            f"FontSize=11,PrimaryColour=&HFFFFFF,Bold=1,OutlineColour=&H000000,"
+            f"Outline=2,Shadow=1,MarginV={margin_bottom},Alignment=2'"
         )
 
         result = subprocess.run([
@@ -424,11 +424,32 @@ async def merge_files(
             f"Outline=1,Shadow=0,MarginV={margin_bottom},Alignment=2'"
         )
 
-        result = subprocess.run([
+        # Get video duration
+        probe_video = subprocess.run([
+            "ffprobe", "-v", "error",
+            "-show_entries", "format=duration",
+            "-of", "csv=p=0",
+            str(video_path)
+        ], capture_output=True, text=True)
+        video_duration = float(probe_video.stdout.strip() or 0)
+
+        # Calculate atempo to stretch/compress Italian audio to match video duration
+        # atempo range is 0.5-2.0, chain filters if needed
+        af_filter = None
+        if video_duration > 0 and duration > 0:
+            ratio = duration / video_duration
+            ratio = max(0.5, min(2.0, ratio))  # clamp to valid range
+            af_filter = f"atempo={ratio:.4f}"
+
+        cmd = [
             "ffmpeg", "-y",
             "-i", str(video_path),
             "-i", str(audio_path),
             "-vf", vf_filter,
+        ]
+        if af_filter:
+            cmd += ["-af", af_filter]
+        cmd += [
             "-c:v", "libx264",
             "-preset", "ultrafast",
             "-crf", "28",
@@ -439,7 +460,9 @@ async def merge_files(
             "-shortest",
             "-threads", "1",
             str(output_path)
-        ], capture_output=True, text=True, timeout=120)
+        ]
+
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
 
         if result.returncode != 0:
             raise HTTPException(status_code=500, detail=f"FFmpeg error: {result.stderr[-500:]}")
